@@ -1,4 +1,4 @@
-# 🍔 API_IFOOD — LOGIMAX Supervisão de Estratégia
+# 🍔 API_IFOOD —  Supervisão de Estratégia
 
 Sistema de supervisão de estratégia com foco em **automação**, **assertividade de dados** e **integração entre sistemas** para operações logísticas e de delivery.
 
