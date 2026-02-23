@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  # ── Backend NestJS ─────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: apiifood-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - apiifood-net
+
+  # ── Python Core (Analytics + Assistant) ───────────────
+  python-core:
+    build:
+      context: ./python-core
+      dockerfile: Dockerfile
+    container_name: apiifood-python
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - apiifood-net
+    depends_on:
+      - backend
+
+  # ── Frontend React ─────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: apiifood-frontend
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_URL=http://backend:3000
+      - VITE_SUPABASE_URL=${SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${SUPABASE_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - apiifood-net
+    depends_on:
+      - backend
+
+networks:
+  apiifood-net:
+    driver: bridge
