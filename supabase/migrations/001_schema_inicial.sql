@@ -1,5 +1,5 @@
 -- =============================================
--- LOGIMAX / API_IFOOD — Schema Supabase
+-- API_IFOOD — Schema Supabase
 -- Supabase Project: jynlxtamjknauqhviaaq
 -- =============================================
 
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS alertas (
     meta            TEXT,
     desvio          TEXT,
     status          TEXT DEFAULT 'ativo',  -- ativo, resolvido, ignorado
-    sistema         TEXT DEFAULT 'LOGIMAX',
+    sistema         TEXT DEFAULT 'API_IFOOD',
     analise         TEXT,
     recomendacao    TEXT,
     resolved_at     TIMESTAMPTZ,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS relatorios_kpi (
     tipo            TEXT NOT NULL,  -- diario, semanal, mensal
     data_referencia DATE,
     dados           JSONB,
-    gerado_por      TEXT DEFAULT 'LOGIMAX_ANALYTICS',
+    gerado_por      TEXT DEFAULT 'API_IFOOD_ANALYTICS',
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS chat_logs (
     pergunta        TEXT,
     resposta        TEXT,
     modelo          TEXT,
-    sistema         TEXT DEFAULT 'LOGIMAX_IA',
+    sistema         TEXT DEFAULT 'API_IFOOD',
     usuario_id      UUID,
     session_id      TEXT,
     tokens_usados   INTEGER,

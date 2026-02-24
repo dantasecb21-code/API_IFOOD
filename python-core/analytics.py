@@ -1,6 +1,6 @@
 """
-analytics.py — Cálculo de KPIs e métricas operacionais
-Sistema: API_IFOOD / LOGIMAX
+analytics.py — Cálculo de KPIs e métricas operacionais de delivery
+Sistema: API_IFOOD
 """
 
 import os
@@ -15,7 +15,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def calcular_taxa_conversao(data_inicio: str, data_fim: str) -> dict:
     """
-    Calcula a taxa de conversão de pedidos no período informado.
+    Calcula a taxa de conversão de pedidos iFood no período informado.
     
     Retorna: { total, aprovados, cancelados, taxa_conversao }
     """
@@ -41,7 +41,7 @@ def calcular_taxa_conversao(data_inicio: str, data_fim: str) -> dict:
 
 def calcular_tempo_medio_entrega(data_inicio: str, data_fim: str) -> dict:
     """
-    Calcula o tempo médio de entrega no período.
+    Calcula o tempo médio de entrega dos pedidos iFood no período.
     """
     resultado = supabase.table("pedidos").select(
         "tempo_preparo_min, tempo_entrega_min, status"
@@ -69,6 +69,29 @@ def calcular_tempo_medio_entrega(data_inicio: str, data_fim: str) -> dict:
     }
 
 
+def calcular_ticket_medio(data_inicio: str, data_fim: str) -> dict:
+    """
+    Calcula o ticket médio dos pedidos iFood no período.
+    """
+    resultado = supabase.table("pedidos").select("valor_total").gte(
+        "created_at", data_inicio
+    ).lte("created_at", data_fim).execute()
+
+    pedidos = resultado.data or []
+    valores = [p.get("valor_total", 0) or 0 for p in pedidos]
+    
+    total = len(valores)
+    soma = sum(valores)
+    media = round(soma / total, 2) if total > 0 else 0
+
+    return {
+        "periodo": {"inicio": data_inicio, "fim": data_fim},
+        "total_pedidos": total,
+        "faturamento_total": f"R$ {soma:.2f}",
+        "ticket_medio": f"R$ {media:.2f}"
+    }
+
+
 def gerar_relatorio_kpis_diario() -> dict:
     """
     Gera relatório de KPIs do dia atual automaticamente.
@@ -79,12 +102,15 @@ def gerar_relatorio_kpis_diario() -> dict:
 
     conversao = calcular_taxa_conversao(inicio, fim)
     tempo_medio = calcular_tempo_medio_entrega(inicio, fim)
+    ticket = calcular_ticket_medio(inicio, fim)
 
     relatorio = {
         "data": str(hoje),
         "gerado_em": datetime.utcnow().isoformat(),
+        "sistema": "API_IFOOD",
         "taxa_conversao": conversao,
         "tempo_medio_entrega": tempo_medio,
+        "ticket_medio": ticket,
     }
 
     # Salvar no Supabase
@@ -93,6 +119,7 @@ def gerar_relatorio_kpis_diario() -> dict:
             "data_referencia": str(hoje),
             "dados": relatorio,
             "tipo": "diario",
+            "gerado_por": "API_IFOOD_ANALYTICS",
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception as e:
@@ -103,18 +130,18 @@ def gerar_relatorio_kpis_diario() -> dict:
 
 def verificar_alertas_automaticos() -> list[dict]:
     """
-    Verifica automaticamente se algum KPI está fora dos limites e emite alertas.
+    Verifica automaticamente se algum KPI de delivery está fora dos limites.
     """
     alertas = []
     hoje = datetime.utcnow().date()
     inicio = f"{hoje}T00:00:00"
     fim = datetime.utcnow().isoformat()
 
+    # Verificar taxa de conversão
     conversao = calcular_taxa_conversao(inicio, fim)
     taxa_str = conversao.get("taxa_conversao", "0%").replace("%", "")
     taxa = float(taxa_str) if taxa_str else 0
 
-    # Alerta: taxa de conversão abaixo de 80%
     if taxa < 80:
         nivel = "CRÍTICO" if taxa < 60 else "ALTO" if taxa < 70 else "MÉDIO"
         alertas.append({
@@ -126,13 +153,26 @@ def verificar_alertas_automaticos() -> list[dict]:
             "timestamp": datetime.utcnow().isoformat()
         })
 
+    # Verificar tempo médio de entrega
+    tempo = calcular_tempo_medio_entrega(inicio, fim)
+    if isinstance(tempo.get("tempo_medio_min"), (int, float)) and tempo["tempo_medio_min"] > 45:
+        nivel = "CRÍTICO" if tempo["tempo_medio_min"] > 60 else "ALTO"
+        alertas.append({
+            "tipo": "TEMPO_ENTREGA_ALTO",
+            "nivel": nivel,
+            "valor_atual": f"{tempo['tempo_medio_min']} min",
+            "meta": "45 min",
+            "desvio": f"{round(tempo['tempo_medio_min'] - 45, 1)} min acima",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
     # Salvar alertas no Supabase
     for alerta in alertas:
         try:
             supabase.table("alertas").insert({
                 **alerta,
                 "status": "ativo",
-                "sistema": "LOGIMAX_ANALYTICS"
+                "sistema": "API_IFOOD_ANALYTICS"
             }).execute()
         except Exception:
             pass
@@ -141,7 +181,7 @@ def verificar_alertas_automaticos() -> list[dict]:
 
 
 if __name__ == "__main__":
-    print("📊 Gerando relatório KPI diário...")
+    print("📊 API_IFOOD — Gerando relatório KPI diário...")
     relatorio = gerar_relatorio_kpis_diario()
     print(relatorio)
 

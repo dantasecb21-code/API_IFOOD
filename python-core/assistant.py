@@ -1,6 +1,6 @@
 """
-assistant.py — Motor de IA (ChatGPT) para supervisão de estratégia
-Sistema: API_IFOOD / LOGIMAX
+assistant.py — Motor de IA (ChatGPT) para supervisão de estratégia de delivery
+Sistema: API_IFOOD
 """
 
 import os
@@ -23,15 +23,16 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 # ── Prompt de Sistema (FUNIL de Supervisão) ─────────────────────────
 
 SYSTEM_PROMPT = """
-Você é LOGIMAX IA — assistente especializado em supervisão de estratégia operacional 
-para delivery e logística (iFood).
+Você é o Assistente API_IFOOD — especializado em supervisão de estratégia operacional 
+de delivery iFood.
 
-🎯 SEU OBJETIVO: Manter o usuário dentro do funil de supervisão.
-Você analisa dados operacionais, detecta desvios, emite alertas e gera relatórios.
+🎯 SEU OBJETIVO: Manter o usuário dentro do funil de supervisão de delivery.
+Você analisa dados de pedidos, detecta desvios operacionais, emite alertas e gera relatórios.
 
 📋 REGRAS:
-1. Responda APENAS sobre: pedidos, KPIs, métricas, alertas, relatórios e estratégia operacional.
-2. Nunca saia do contexto de supervisão de delivery/logística.
+1. Responda APENAS sobre: pedidos iFood, KPIs de delivery, métricas operacionais, alertas, 
+   relatórios e estratégia de entrega.
+2. Nunca saia do contexto de supervisão de delivery iFood.
 3. Use dados reais do Supabase quando disponíveis.
 4. Para alertas, use o formato PRÉ-ALERTA padrão.
 5. Seja assertivo, direto e baseado em dados.
@@ -45,6 +46,14 @@ Você analisa dados operacionais, detecta desvios, emite alertas e gera relatór
 ⚠️ Desvio: [Z%]
 🔍 Análise: [descrição]
 💡 Recomendação: [ação]
+
+📊 KPIs DO DELIVERY:
+- Taxa de conversão (pedidos concluídos / total)
+- Tempo médio de preparo
+- Tempo médio de entrega  
+- Taxa de cancelamento
+- Ticket médio
+- Avaliação média do cliente
 """
 
 # ── Contexto de Dados do Supabase ────────────────────────────────────
@@ -74,7 +83,7 @@ def buscar_contexto_operacional() -> dict:
 
 # ── Motor de Chat ────────────────────────────────────────────────────
 
-class AssistenteLOGIMAX:
+class AssistenteIFOOD:
     def __init__(self):
         self.historico: list[dict] = []
         self.max_historico = 20
@@ -133,7 +142,7 @@ class AssistenteLOGIMAX:
                 "resposta": resposta,
                 "modelo": OPENAI_MODEL,
                 "timestamp": datetime.utcnow().isoformat(),
-                "sistema": "LOGIMAX_IA"
+                "sistema": "API_IFOOD"
             }).execute()
         except Exception:
             pass  # Log é melhor esforço, não crítico
@@ -142,12 +151,12 @@ class AssistenteLOGIMAX:
 # ── Interface CLI ────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("🍔 LOGIMAX IA — Assistente de Supervisão Operacional")
+    print("🍔 API_IFOOD — Assistente de Supervisão de Delivery")
     print("=" * 55)
     print("Digite 'sair' para encerrar | 'limpar' para novo contexto")
     print()
 
-    assistente = AssistenteLOGIMAX()
+    assistente = AssistenteIFOOD()
 
     while True:
         try:
@@ -162,7 +171,7 @@ if __name__ == "__main__":
                 print("✅ Histórico limpo.")
                 continue
 
-            print("\nLOGIMAX IA: ", end="", flush=True)
+            print("\nAPI_IFOOD IA: ", end="", flush=True)
             resposta = assistente.responder(entrada)
             print(resposta)
             print()
