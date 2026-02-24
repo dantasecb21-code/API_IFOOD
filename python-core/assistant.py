@@ -75,6 +75,23 @@ def buscar_contexto_operacional() -> dict:
         resultado_alertas = supabase.table("alertas").select("*").eq("status", "ativo").execute()
         contexto["alertas_ativos"] = resultado_alertas.data if resultado_alertas.data else []
 
+        # --- NOVAS TABELAS DE ESTRATÉGIA ---
+        # Métricas Semanais iFood
+        resultado_semanal = supabase.table("metricas_semanais_ifood").select("*").order("created_at", desc=True).limit(5).execute()
+        contexto["metricas_semanais"] = resultado_semanal.data if resultado_semanal.data else []
+
+        # Tarefas pendentes
+        resultado_tarefas = supabase.table("tarefas").select("*").eq("status", "pendente").order("prioridade", desc=True).limit(10).execute()
+        contexto["tarefas_pendentes"] = resultado_tarefas.data if resultado_tarefas.data else []
+
+        # Checklist
+        resultado_checklist = supabase.table("checklist_estrategia").select("*").execute()
+        contexto["checklist"] = resultado_checklist.data if resultado_checklist.data else []
+
+        # Próximas reuniões
+        resultado_reunioes = supabase.table("reunioes").select("*").gte("data_hora", datetime.utcnow().isoformat()).order("data_hora", desc=False).limit(3).execute()
+        contexto["proximas_reunioes"] = resultado_reunioes.data if resultado_reunioes.data else []
+
     except Exception as e:
         contexto["erro"] = str(e)
 

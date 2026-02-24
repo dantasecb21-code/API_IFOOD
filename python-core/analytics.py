@@ -4,8 +4,10 @@ Sistema: API_IFOOD
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from supabase import create_client, Client
+from .ifood_api import fetch_and_populate_metrics
+import asyncio
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://jynlxtamjknauqhviaaq.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
@@ -134,6 +136,7 @@ def verificar_alertas_automaticos() -> list[dict]:
     """
     alertas = []
     hoje = datetime.utcnow().date()
+    # No contexto atual, usar o f-string para o range de tempo
     inicio = f"{hoje}T00:00:00"
     fim = datetime.utcnow().isoformat()
 
@@ -180,15 +183,53 @@ def verificar_alertas_automaticos() -> list[dict]:
     return alertas
 
 
+async def atualizar_metricas_semanais(merchant_id: str):
+    """
+    Busca dados na API do iFood e salva na tabela metricas_semanais_ifood.
+    """
+    hoje = date.today()
+    inicio_semana = hoje - timedelta(days=hoje.weekday())
+    fim_semana = inicio_semana + timedelta(days=6)
+    
+    logger.info(f"Atualizando métricas semanais para a loja {merchant_id}")
+    
+    try:
+        dados = await fetch_and_populate_metrics(
+            merchant_id, 
+            hoje.month, 
+            hoje.year, 
+            inicio_semana, 
+            fim_semana
+        )
+        
+        # Inserir no Supabase
+        resultado = supabase.table("metricas_semanais_ifood").insert(dados).execute()
+        logger.info(f"Métricas semanais salvas: {resultado.data}")
+        return resultado.data
+    except Exception as e:
+        logger.error(f"Erro ao atualizar métricas semanais: {str(e)}")
+        return {"erro": str(e)}
+
+
+def run_async(coro):
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(coro)
+
+
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
     print("📊 API_IFOOD — Gerando relatório KPI diário...")
     relatorio = gerar_relatorio_kpis_diario()
     print(relatorio)
 
     print("\n🔍 Verificando alertas automáticos...")
     alertas = verificar_alertas_automaticos()
-    if alertas:
-        for a in alertas:
-            print(f"⚠️  [{a['nivel']}] {a['tipo']}: {a['valor_atual']} (meta: {a['meta']})")
-    else:
-        print("✅ Todos os KPIs dentro dos limites.")
+    
+    # Exemplo de uso da nova integração
+    print("\n📦 Atualizando métricas da iFood API...")
+    merchant_id = os.getenv("IFOOD_MERCHANT_ID", "1a2b3c4d-5e6f-7g8h-9i0j-k1l2m3n4o5p")
+    metricas = run_async(atualizar_metricas_semanais(merchant_id))
+    print(metricas)
