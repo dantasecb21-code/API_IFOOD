@@ -184,7 +184,8 @@ app.mount("/mcp", mcp_server)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "github_accounts": len(GITHUB_CLIENTS), "supabase_connected": SUPABASE_URL is not None}
+    return {"status": "OK", "github_accounts": len(GITHUB_CLIENTS), "supabase_connected": SUPABASE_URL is not None}
+
 
 if __name__ == "__main__":
     import uvicorn
