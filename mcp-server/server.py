@@ -3,14 +3,16 @@ import asyncio
 import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from mcp.server.fastapi import create_server
-from mcp.types import Tool
+from mcp.types import Tool, TextContent
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import httpx
 from github import Github
 from supabase import create_client, Client
+
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +22,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp-server")
 
 app = FastAPI(title="API_IFOOD MCP Server")
+
+# --- Security Middleware ---
+MCP_API_KEY = os.getenv("MCP_API_KEY")
+
+@app.middleware("http")
+async def verify_auth(request: Request, call_next):
+    # Skip auth for health check and options
+    if request.url.path == "/health" or request.method == "OPTIONS":
+        return await call_next(request)
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing or invalid Bearer token"}
+        )
+    
+    token = auth_header.split(" ")[1]
+    if token != MCP_API_KEY:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Unauthorized"}
+        )
+    
+    return await call_next(request)
+
 
 # --- Configuration ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")

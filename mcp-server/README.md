@@ -29,7 +29,16 @@ Este servidor centraliza as integrações do sistema **API_IFOOD**, permitindo q
     ```
     O servidor estará disponível em `http://localhost:8000`.
 
+## 🔑 Autenticação (Bearer Token)
+
+O servidor agora requer um **Bearer Token** para todas as requisições (exceto `/health`). 
+
+*   **Token Atual**: Definido no seu `.env` como `MCP_API_KEY`.
+*   **Como usar**: Nas configurações do seu cliente (Lovable, etc), adicione um header de autorização:
+    `Authorization: Bearer api_ifood_secret_token_123`
+
 ## 🛠️ Ferramentas Disponíveis (MCP Tools)
+
 
 *   `get_daily_kpis`: Retorna taxa de conversão e volume de pedidos do dia.
 *   `github_global_search`: Pesquisa issues e PRs em todas as contas GitHub configuradas.
