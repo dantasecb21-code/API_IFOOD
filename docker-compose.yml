@@ -39,6 +39,26 @@ services:
     depends_on:
       - backend
 
+  # ── MCP Server (Integrations Gateway) ──────────────────
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: apiifood-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - IFOOD_CLIENT_ID=${IFOOD_CLIENT_ID}
+      - IFOOD_CLIENT_SECRET=${IFOOD_CLIENT_SECRET}
+      - GITHUB_TOKENS=${GITHUB_TOKENS}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - apiifood-net
+
   # ── Frontend React ─────────────────────────────────────
   frontend:
     build:
