@@ -1,3 +1,4 @@
+# API_IFOOD MCP Server - Last Deployment Update: 2026-02-27
 import os
 import asyncio
 import logging
