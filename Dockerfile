@@ -2,19 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instala curl para healthchecks
+# Instala dependências básicas
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Copia o arquivo de dependências usando o caminho correto da pasta
+# Copia requirements e instala
 COPY mcp-server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia todo o conteúdo da pasta mcp-server para a raiz do container
+# Copia o código
 COPY mcp-server/ .
 
-# Railway usa a porta 8080
+# Railway usa a porta 8080. Uvicorn vai ler de $PORT se usarmos a flag --port.
 ENV PORT=8080
 EXPOSE 8080
 
-# Inicia o servidor (agora o server.py está na raiz da pasta /app no container)
-CMD ["python", "server.py"]
+# Comando padrão de produção usando uvicorn diretamente
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
