@@ -2,14 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copia os requisitos usando o caminho relativo à raiz do projeto
-COPY mcp-server/requirements.txt .
+# Instale dependências de sistema se necessário
+RUN apt-get update && apt-get install -x -y curl && rm -rf /var/lib/apt/lists/*
+
+# Copie apenas o básico para o build de dependências ser rápido
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia todo o conteúdo da pasta mcp-server para o diretório de trabalho /app
-COPY mcp-server/ .
+# Copie o código fonte agora
+COPY . .
 
-EXPOSE 8000
+# Expomos a porta do Railway
+EXPOSE 8080
 
+# Comando de Inicialização: 
+# Rodamos o Guardian (que é instantâneo) enquanto o MCP carrega suas bibliotecas pesadas.
+# IMPORTANTE: No Railway, o Guardian responderá /health para manter verde e o MCP rodará /mcp
 CMD ["python", "server.py"]
-
