@@ -59,10 +59,26 @@ IFOOD_BASE_URL = os.getenv("IFOOD_API_BASE_URL", "https://merchant-api.ifood.com
 
 # GitHub Configuration for multiple repos
 GITHUB_TOKENS = os.getenv("GITHUB_TOKENS", "").split(",")
-GITHUB_CLIENTS = [Github(token.strip()) for token in GITHUB_TOKENS if token.strip()]
+GITHUB_CLIENTS = []
+for token in GITHUB_TOKENS:
+    t = token.strip()
+    if t and t != "your_token_1" and t != "your_token_2":
+        try:
+            GITHUB_CLIENTS.append(Github(t))
+        except Exception as e:
+            logger.error(f"Error initializing GitHub client: {e}")
 
-# Initialize Clients
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Initialize Clients with safety checks
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_KEY and "your_supabase" not in SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("✅ Supabase client initialized.")
+    except Exception as e:
+        logger.error(f"❌ Error initializing Supabase: {e}")
+else:
+    logger.warning("⚠️ Supabase credentials missing or invalid.")
+
 
 class IFoodClient:
     def __init__(self, client_id, client_secret):
@@ -98,8 +114,12 @@ async def calcular_kpis():
     inicio = f"{hoje}T00:00:00"
     fim = f"{hoje}T23:59:59"
     
+    if not supabase:
+        return {"error": "Supabase connection not initialized"}
+    
     # Exemplo de lógica portada do analytics.py
     res = supabase.table("pedidos").select("status").gte("created_at", inicio).execute()
+
     pedidos = res.data or []
     total = len(pedidos)
     aprovados = sum(1 for p in pedidos if p.get("status") in ["entregue", "concluido"])
@@ -185,7 +205,13 @@ app.mount("/mcp", mcp_server)
 
 @app.get("/health")
 async def health():
-    return {"status": "OK", "github_accounts": len(GITHUB_CLIENTS), "supabase_connected": SUPABASE_URL is not None}
+    return {
+        "status": "OK",
+        "github_accounts": len(GITHUB_CLIENTS),
+        "supabase_connected": supabase is not None,
+        "mcp_key_set": MCP_API_KEY is not None
+    }
+
 
 
 if __name__ == "__main__":
