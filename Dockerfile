@@ -2,19 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instala dependências básicas
+# Instala curl e dependências de rede básicas
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Copia requirements e instala
+# Cache de dependências
 COPY mcp-server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o código
+# Copia o código fonte
 COPY mcp-server/ .
 
-# Railway usa a porta 8080. Uvicorn vai ler de $PORT se usarmos a flag --port.
+# Railway usa a variável $PORT. Nosso script server.py já lê essa variável.
 ENV PORT=8080
 EXPOSE 8080
 
-# Comando padrão de produção usando uvicorn diretamente
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Inicia o servidor via Python para garantir que o bloco 'if name == main' rode 
+# e capture a porta dinâmica do ambiente.
+CMD ["python", "server.py"]
