@@ -1,15 +1,17 @@
 import os
 import logging
-from fastapi import FastAPI
+import sys
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-# Configuração de Logs básica
-logging.basicConfig(level=logging.INFO)
+# Logging
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger("mcp-server")
 
 app = FastAPI()
 
-# Permite que o Lovable se conecte sem problemas
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,19 +19,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- PUBLIC ROUTES ---
 @app.get("/health")
 @app.get("/")
 async def health():
-    logger.info("💓 Healthcheck recebido e respondido!")
-    return {"status": "OK", "message": "Estou vivo e funcionando!"}
+    logger.info("💓 Health check received")
+    return {"status": "OK", "version": "RESET-V1"}
 
 @app.get("/mcp")
-async def mcp_status():
-    return {"status": "MCP pronto para configuração"}
+async def mcp_get():
+    # Lovable expects a basic response for discovery
+    return {
+        "status": "ready",
+        "endpoints": ["/mcp"]
+    }
+
+@app.post("/mcp")
+async def mcp_post(request: Request):
+    # Minimal response to prove connectivity
+    return JSONResponse({
+        "content": [{"type": "text", "text": "Ponte MCP API_IFOOD estabelecida."}]
+    })
 
 if __name__ == "__main__":
     import uvicorn
-    # Forçamos a porta 8080 que é a padrão do Railway
+    # Railway dynamic port
     port = int(os.environ.get("PORT", 8080))
-    logger.info(f"🚀 Iniciando servidor na porta {port}")
+    logger.info(f"🚀 Server starting on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
