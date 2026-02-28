@@ -3,71 +3,63 @@ import logging
 import sys
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from mcp.server import Server
-from mcp.server.fastapi import FastapiServerTransport
+import asyncio
 
-# 1. Logs Ultra-Rápidos
-logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
-logger = logging.getLogger("mcp-v29")
-logger.info("🚀 [V29] MOTOR INICIADO - PROTOCOLO DE IMORTALIDADE ATIVO")
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logger = logging.getLogger("mcp-v30")
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- CHAVES DE ACESSO ---
+# --- CREDENCIAIS VINCULADAS ---
 CID = "324b51ec-d3b0-47ff-ab74-e577c0cb3875"
 SEC = "giqwx9pfymnzj6c3u3844wg6i9dxluf814ukh9sdzj07c580dptqx6fjec6wnttobw80o9snvks3nkag25vfhwo3xgmk45r374z"
 
-# --- MCP (PROTEGIDO) ---
-_mcp_srv = None
-_transport = None
-
-def get_mcp():
-    global _mcp_srv, _transport
-    if _mcp_srv is None:
-        try:
-            _mcp_srv = Server("api-ifood-eternal")
-            
-            @_mcp_srv.list_tools()
-            async def list_tools():
-                from mcp.types import Tool
-                return [
-                    Tool(name="forcar_auth_ifood", description="Tenta login manual no iFood", inputSchema={"type":"object"}),
-                    Tool(name="buscar_funil_venda", description="Puxa o faturamento real", inputSchema={"type":"object"})
-                ]
-            
-            @_mcp_srv.call_tool()
-            async def call_tool(name, args):
-                from mcp.types import TextContent
-                if name == "forcar_auth_ifood":
-                    return [TextContent(type="text", text="🔄 Tentando autenticar...")]
-                return [TextContent(type="text", text="✅ Ponte V29 Online")]
-
-            _transport = FastapiServerTransport(_mcp_srv, endpoint="/mcp")
-            logger.info("📡 MCP TRANSPORT LOADED")
-        except Exception as e:
-            logger.error(f"❌ MCP LOAD FAIL: {e}")
-    return _transport
-
-# --- ROTAS ---
 @app.get("/health")
 @app.get("/")
 async def health():
-    return {"status": "OK", "version": "V29-ETERNAL", "port": os.environ.get("PORT")}
+    return {"status": "OK", "v": "V30-READY"}
 
 @app.get("/mcp")
-async def handle_mcp_get(request: Request):
-    t = get_mcp()
-    if t: return await t.handle_get_sse(request)
-    return JSONResponse(status_code=500, content={"err": "MCP_OFF"})
+async def mcp_get(request: Request):
+    async def sse():
+        yield "event: endpoint\ndata: /mcp\n\n"
+        while True:
+            await asyncio.sleep(20)
+            yield ": keep-alive\n\n"
+    return StreamingResponse(sse(), media_type="text/event-stream")
 
 @app.post("/mcp")
-async def handle_mcp_post(request: Request):
-    t = get_mcp()
-    if t: return await t.handle_post_notification(request)
-    return JSONResponse(status_code=500, content={"err": "MCP_OFF"})
+async def mcp_post(request: Request):
+    body = await request.json()
+    msg_id = body.get("id")
+    method = body.get("method")
+    
+    if method == "initialize":
+        return {"jsonrpc":"2.0","id":msg_id,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"ifood","version":"1"}}}
+    
+    if method == "tools/list":
+        return {"jsonrpc":"2.0","id":msg_id,"result":{"tools":[{"name":"sincronizar_ifood","description":"Faz login real no iFood","inputSchema":{"type":"object"}}]}}
+
+    if method == "tools/call":
+        async with httpx.AsyncClient() as client:
+            # TENTA O PADRÃO 1
+            r = await client.post("https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token", 
+                                data={"grantType": "client_credentials", "clientId": CID, "clientSecret": SEC},
+                                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            if r.status_code == 200:
+                return {"jsonrpc":"2.0","id":msg_id,"result":{"content":[{"type":"text","text":"✅ SUCESSO! Logado no iFood."}]}}
+            
+            # TENTA O PADRÃO 2 (Se o 1 falhar)
+            r2 = await client.post("https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token", 
+                                 data={"grant_type": "client_credentials", "client_id": CID, "client_secret": SEC},
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+            
+            return {"jsonrpc":"2.0","id":msg_id,"result":{"content":[{"type":"text","text":f"❌ Erro iFood: {r.text}"}]}}
+
+    return {"jsonrpc":"2.0","id":msg_id,"result":{}}
 
 if __name__ == "__main__":
     import uvicorn
