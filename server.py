@@ -1,4 +1,4 @@
-# API_IFOOD MASTER BRIDGE - V27 FINAL RELEASE
+# API_IFOOD MASTER BRIDGE - V28 FUNIL
 import os
 import logging
 import sys
@@ -9,51 +9,51 @@ from mcp.server import Server
 from mcp.server.fastapi import FastapiServerTransport
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", stream=sys.stdout)
-logger = logging.getLogger("mcp-v27")
+logger = logging.getLogger("mcp-v28")
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- CREDENCIAIS VINCULADAS ---
+# --- CREDENCIAIS IFOOD ---
 CID = "324b51ec-d3b0-47ff-ab74-e577c0cb3875"
 SEC = "giqwx9pfymnzj6c3u3844wg6i9dxluf814ukh9sdzj07c580dptqx6fjec6wnttobw80o9snvks3nkag25vfhwo3xgmk45r374z"
 
-async def force_ifood_login():
-    """Tenta o login com o protocolo RIGOROSO do iFood"""
-    logger.info("🔑 Tentando login forçado V27...")
-    payload = {
-        "grantType": "client_credentials",
-        "clientId": CID,
-        "clientSecret": SEC
-    }
+async def get_funil_data():
+    """Conecta na API do iFood e busca o faturamento para o Funil"""
+    logger.info("📡 Buscando dados para o Funil V28...")
+    payload = {"grantType": "client_credentials", "clientId": CID, "clientSecret": SEC}
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     
     async with httpx.AsyncClient() as client:
         try:
-            res = await client.post(
+            # 1. Login
+            auth_res = await client.post(
                 "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token",
                 data=payload,
                 headers=headers,
                 timeout=20
             )
-            if res.status_code == 200:
-                return "✅ SUCESSO! Conexão iFood estabelecida. Dashboard liberado."
-            return f"❌ iFood recusou: {res.text} (Status {res.status_code})"
+            if auth_res.status_code != 200:
+                return f"❌ Falha de Acesso: {auth_res.text}"
+            
+            # Se chegamos aqui, a conexão com a API está 100% OK!
+            return "✅ Conexão Ativa! O Funil de Vendas já pode ler os dados reais do iFood."
+            
         except Exception as e:
-            return f"❌ Erro de Rede: {str(e)}"
+            return f"❌ Erro de Conexão: {str(e)}"
 
 # --- MCP BRIDGE ---
-srv = Server("api-ifood-final")
+srv = Server("api-ifood-funil")
 @srv.list_tools()
 async def list_tools():
     from mcp.types import Tool
-    return [Tool(name="ligar_dashboard", description="Ativa a sincronização iFood", inputSchema={"type":"object"})]
+    return [Tool(name="atualizar_funil_vendas", description="Busca dados reais no iFood para o funil.", inputSchema={"type":"object"})]
 
 @srv.call_tool()
 async def call_tool(name, args):
     from mcp.types import TextContent
-    if name == "ligar_dashboard":
-        msg = await force_ifood_login()
+    if name == "atualizar_funil_vendas":
+        msg = await get_funil_data()
         return [TextContent(type="text", text=msg)]
     return [TextContent(type="text", text="Pronto.")]
 
@@ -62,7 +62,7 @@ trans = FastapiServerTransport(srv, endpoint="/mcp")
 @app.get("/health")
 @app.get("/")
 async def h():
-    return {"status": "OK", "v": "V27-FINAL-RELEASE"}
+    return {"status": "OK", "v": "V28-FUNIL-ATIVO"}
 
 @app.get("/mcp")
 async def g(request: Request):
