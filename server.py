@@ -1,56 +1,50 @@
 import os
 import logging
 import sys
-import json
 import asyncio
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+# Configuração de Logs direta
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger("mcp-v18")
+logger = logging.getLogger("mcp")
 
 app = FastAPI()
 
-# LIBERA TUDO (CORS MÁXIMO)
+# LIBERA TOTAL PARA O LOVABLE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
 
 @app.get("/health")
 @app.get("/")
 async def health():
-    return {"status": "OK", "version": "V18-MANUAL"}
-
-# --- HANDSHAKE MCP MANUAL PARA O LOVABLE ---
+    return {"status": "OK", "msg": "V19 - PRONTO PARA CONECTAR"}
 
 @app.get("/mcp")
-async def mcp_get(request: Request):
-    """Lida com a conexão SSE do Lovable"""
+async def sse_get(request: Request):
+    """O Lovable abre essa porta e espera o sinal de OK"""
     async def event_generator():
-        # 1. Envia o ID da conexão (exigência MCP)
+        # SINAL ESSENCIAL: Diz ao Lovable onde enviar comandos
         yield f"event: endpoint\ndata: /mcp\n\n"
-        
-        # Mantém a conexão viva
         while True:
-            await asyncio.sleep(15)
+            await asyncio.sleep(20)
             yield ": keep-alive\n\n"
-
+            
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/mcp")
-async def mcp_post(request: Request):
-    """Lida com as requisições de ferramentas"""
+async def sse_post(request: Request):
+    """O Lovable envia os comandos aqui"""
     body = await request.json()
     msg_id = body.get("id")
     method = body.get("method")
     
-    # Resposta padrão para o Lovable "sentir" o servidor
+    # Resposta de inicialização que o Lovable exige
     if method == "initialize":
         return {
             "jsonrpc": "2.0",
@@ -62,6 +56,7 @@ async def mcp_post(request: Request):
             }
         }
     
+    # Lista a ferramenta de teste
     if method == "tools/list":
         return {
             "jsonrpc": "2.0",
@@ -69,17 +64,18 @@ async def mcp_post(request: Request):
             "result": {
                 "tools": [
                     {
-                        "name": "check_status",
-                        "description": "Verifica se a ponte iFood está operacional.",
+                        "name": "verificar_ponte",
+                        "description": "Verifica se o servidor iFood está respondendo.",
                         "inputSchema": {"type": "object"}
                     }
                 ]
             }
         }
-
+    
     return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
 
 if __name__ == "__main__":
     import uvicorn
+    # Railway exige porta dinâmica
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
