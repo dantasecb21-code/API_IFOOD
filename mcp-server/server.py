@@ -1,4 +1,4 @@
-# API_IFOOD MCP Server - Production Final (Dual Auth Support)
+# API_IFOOD MCP Server - DEFINITIVE STABLE VERSION
 import os
 import asyncio
 import logging
@@ -13,135 +13,108 @@ from mcp.server.fastapi import FastapiServerTransport
 from mcp.types import Tool, TextContent
 from dotenv import load_dotenv
 
-# --- Production Logging ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout
-)
+# --- Logging ---
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger("mcp-server")
 
-# Load environment variables
+# Load env
 load_dotenv()
 
-# --- Security Configuration ---
-# We accept both keys to ensure you can connect regardless of which one you have ready
-KEY_A = "api_ifood_secret_token_123"
-KEY_B = "IFood_Master_Key_2026_Secure"
+# --- Security ---
+# USAR ESTA CHAVE NO LOVABLE: ifood2026
+MCP_API_KEY = "ifood2026"
 
-# If you set a custom one in Railway Variables, it will use that instead:
-MCP_API_KEY_ENV = os.getenv("MCP_API_KEY", "").strip().strip("'").strip('"')
-
-logger.info("🚀 PRODUCTION SERVER STARTING...")
-if MCP_API_KEY_ENV:
-    logger.info(f"Using CUSTOM MCP_API_KEY from Railway (starts with: {MCP_API_KEY_ENV[:4]}...)")
-else:
-    logger.info(f"Using DEFAULT Keys: '{KEY_A}' OR '{KEY_B}'")
-
-# --- Integration Configuration ---
+# --- Config ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip().strip("'").strip('"')
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip("'").strip('"')
 
 # Global Supabase client (Lazy Initialized)
-_supabase_client = None
+_supabase = None
 
-def get_supabase() -> Optional[Any]:
-    global _supabase_client
-    if _supabase_client is None and SUPABASE_URL and SUPABASE_KEY:
+def get_supabase():
+    global _supabase
+    if _supabase is None and SUPABASE_URL and SUPABASE_KEY:
         try:
             from supabase import create_client
-            _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-            logger.info("✅ Supabase connection established.")
+            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            logger.info("✅ Supabase connected.")
         except Exception as e:
-            logger.error(f"❌ Failed to connect to Supabase: {e}")
-    return _supabase_client
+            logger.error(f"❌ Supabase error: {e}")
+    return _supabase
 
-# --- MCP Tool Definitions ---
-mcp_server = Server("api-ifood-production")
+# --- MCP Tools ---
+mcp_app = Server("api-ifood-integrator")
 
-@mcp_server.list_tools()
+@mcp_app.list_tools()
 async def list_tools() -> List[Tool]:
     return [
         Tool(
-            name="get_delivery_stats",
-            description="Returns daily delivery metrics (orders, conversion) from the database.",
+            name="get_delivery_kpis",
+            description="Busca KPIs de vendas e conversão do dia atual",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
-            name="system_diagnostic",
-            description="Checks the health of all external integrations.",
+            name="check_system",
+            description="Verifica se o servidor está conseguindo falar com o banco de dados",
             inputSchema={"type": "object", "properties": {}}
         )
     ]
 
-@mcp_server.call_tool()
-async def handle_tool_call(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-    sb = get_supabase()
+@mcp_app.call_tool()
+async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+    if name == "check_system":
+        sb = get_supabase()
+        return [TextContent(type="text", text=f"Sistema Online. Banco de Dados: {'Conectado' if sb else 'Desconectado'}")]
     
-    if name == "system_diagnostic":
-        status_msg = f"🌐 Server: ONLINE\n📦 Supabase: {'CONNECTED' if sb else 'DISCONNECTED'}"
-        return [TextContent(type="text", text=status_msg)]
-
-    if name == "get_delivery_stats":
-        if not sb: return [TextContent(type="text", text="Error: Supabase disconnected.")]
+    if name == "get_delivery_kpis":
+        sb = get_supabase()
+        if not sb: return [TextContent(type="text", text="Erro: Banco de dados não configurado.")]
         try:
             hoje = datetime.utcnow().date().isoformat()
             res = sb.table("pedidos").select("status").gte("created_at", f"{hoje}T00:00:00").execute()
-            data = res.data or []
-            return [TextContent(type="text", text=f"Stats for {hoje}: {len(data)} orders found.")]
+            count = len(res.data or [])
+            return [TextContent(type="text", text=f"📊 Status em {hoje}: {count} pedidos registrados.")]
         except Exception as e:
-            return [TextContent(type="text", text=f"Data Error: {str(e)}")]
+            return [TextContent(type="text", text=f"Erro ao buscar dados: {str(e)}")]
+            
+    return [TextContent(type="text", text="Ferramenta não encontrada.")]
 
-    return [TextContent(type="text", text="Tool not found.")]
-
-# --- FastAPI Framework ---
-app = FastAPI(title="API_IFOOD Production Gateway")
+# --- FastAPI ---
+app = FastAPI(title="API_IFOOD MCP Final")
 
 @app.get("/health")
-async def health_check():
-    return {"status": "OK", "version": "2.1.0"}
+async def health():
+    return {"status": "OK", "version": "3.0.0"}
 
 @app.get("/")
-async def welcome():
-    return {"message": "API_IFOOD MCP is Live. Connect via /mcp"}
+async def root():
+    return {"message": "Server is ONLINE. Use /mcp with Bearer Token 'ifood2026'"}
 
-# Security Middleware (Dual-Key Auth)
 @app.middleware("http")
-async def security_middleware(request: Request, call_next):
+async def auth_middleware(request: Request, call_next):
     if request.url.path in ["/health", "/", "/favicon.ico"] or request.method == "OPTIONS":
         return await call_next(request)
     
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return JSONResponse(status_code=401, content={"detail": "Missing Bearer Token"})
-    
-    token_received = auth_header.split(" ")[1]
-    
-    # Validation logic
-    authorized = False
-    if MCP_API_KEY_ENV and token_received == MCP_API_KEY_ENV:
-        authorized = True
-    elif token_received in [KEY_A, KEY_B]:
-        authorized = True
-        
-    if not authorized:
-        logger.warning(f"Unauthorized access attempt with token ending in ...{token_received[-3:]}")
-        return JSONResponse(status_code=401, content={"detail": "Invalid Token"})
+    auth = request.headers.get("Authorization")
+    if not auth or auth != f"Bearer {MCP_API_KEY}":
+        logger.warning("Acesso negado: Token incorreto")
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized - Use token 'ifood2026'"})
     
     return await call_next(request)
 
 # MCP Transport
-transport = FastapiServerTransport(mcp_server, endpoint="/mcp")
+transport = FastapiServerTransport(mcp_app, endpoint="/mcp")
 
 @app.post("/mcp")
-async def mcp_post(request: Request):
+async def handle_mcp_post(request: Request):
     return await transport.handle_post_notification(request)
 
 @app.get("/mcp")
-async def mcp_get(request: Request):
+async def handle_mcp_sse(request: Request):
     return await transport.handle_get_sse(request)
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8080))
+    logger.info(f"📡 SERVIDOR INICIADO NA PORTA {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
