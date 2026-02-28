@@ -1,47 +1,83 @@
 import os
 import logging
 import sys
+import json
+import asyncio
 from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from mcp.server import Server
-from mcp.server.fastapi import FastapiServerTransport
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger("mcp")
+logger = logging.getLogger("mcp-v18")
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- MCP SERVER ---
-mcp_srv = Server("api-ifood-v17")
-
-@mcp_srv.list_tools()
-async def list_tools():
-    from mcp.types import Tool
-    return [Tool(name="check", description="Teste", inputSchema={"type": "object"})]
-
-@mcp_srv.call_tool()
-async def call_tool(name, args):
-    from mcp.types import TextContent
-    return [TextContent(type="text", text="✅ Conexão V17 OK!")]
-
-# Transporte SSE
-# Criamos uma função para lidar com o transporte de forma segura
-transport = FastapiServerTransport(mcp_srv, endpoint="/mcp")
+# LIBERA TUDO (CORS MÁXIMO)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 @app.get("/health")
-async def health():
-    return {"status": "OK", "msg": "V17 - Porta Aberta"}
-
 @app.get("/")
+async def health():
+    return {"status": "OK", "version": "V18-MANUAL"}
+
+# --- HANDSHAKE MCP MANUAL PARA O LOVABLE ---
+
 @app.get("/mcp")
 async def mcp_get(request: Request):
-    return await transport.handle_get_sse(request)
+    """Lida com a conexão SSE do Lovable"""
+    async def event_generator():
+        # 1. Envia o ID da conexão (exigência MCP)
+        yield f"event: endpoint\ndata: /mcp\n\n"
+        
+        # Mantém a conexão viva
+        while True:
+            await asyncio.sleep(15)
+            yield ": keep-alive\n\n"
 
-@app.post("/")
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.post("/mcp")
 async def mcp_post(request: Request):
-    return await transport.handle_post_notification(request)
+    """Lida com as requisições de ferramentas"""
+    body = await request.json()
+    msg_id = body.get("id")
+    method = body.get("method")
+    
+    # Resposta padrão para o Lovable "sentir" o servidor
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "ifood-bridge", "version": "1.0.0"}
+            }
+        }
+    
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "check_status",
+                        "description": "Verifica se a ponte iFood está operacional.",
+                        "inputSchema": {"type": "object"}
+                    }
+                ]
+            }
+        }
+
+    return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
 
 if __name__ == "__main__":
     import uvicorn
