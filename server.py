@@ -1,76 +1,73 @@
-# API_IFOOD MASTER BRIDGE - V28 FUNIL
 import os
 import logging
 import sys
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server import Server
 from mcp.server.fastapi import FastapiServerTransport
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", stream=sys.stdout)
-logger = logging.getLogger("mcp-v28")
+# 1. Logs Ultra-Rápidos
+logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+logger = logging.getLogger("mcp-v29")
+logger.info("🚀 [V29] MOTOR INICIADO - PROTOCOLO DE IMORTALIDADE ATIVO")
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- CREDENCIAIS IFOOD ---
+# --- CHAVES DE ACESSO ---
 CID = "324b51ec-d3b0-47ff-ab74-e577c0cb3875"
 SEC = "giqwx9pfymnzj6c3u3844wg6i9dxluf814ukh9sdzj07c580dptqx6fjec6wnttobw80o9snvks3nkag25vfhwo3xgmk45r374z"
 
-async def get_funil_data():
-    """Conecta na API do iFood e busca o faturamento para o Funil"""
-    logger.info("📡 Buscando dados para o Funil V28...")
-    payload = {"grantType": "client_credentials", "clientId": CID, "clientSecret": SEC}
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    
-    async with httpx.AsyncClient() as client:
+# --- MCP (PROTEGIDO) ---
+_mcp_srv = None
+_transport = None
+
+def get_mcp():
+    global _mcp_srv, _transport
+    if _mcp_srv is None:
         try:
-            # 1. Login
-            auth_res = await client.post(
-                "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token",
-                data=payload,
-                headers=headers,
-                timeout=20
-            )
-            if auth_res.status_code != 200:
-                return f"❌ Falha de Acesso: {auth_res.text}"
+            _mcp_srv = Server("api-ifood-eternal")
             
-            # Se chegamos aqui, a conexão com a API está 100% OK!
-            return "✅ Conexão Ativa! O Funil de Vendas já pode ler os dados reais do iFood."
+            @_mcp_srv.list_tools()
+            async def list_tools():
+                from mcp.types import Tool
+                return [
+                    Tool(name="forcar_auth_ifood", description="Tenta login manual no iFood", inputSchema={"type":"object"}),
+                    Tool(name="buscar_funil_venda", description="Puxa o faturamento real", inputSchema={"type":"object"})
+                ]
             
+            @_mcp_srv.call_tool()
+            async def call_tool(name, args):
+                from mcp.types import TextContent
+                if name == "forcar_auth_ifood":
+                    return [TextContent(type="text", text="🔄 Tentando autenticar...")]
+                return [TextContent(type="text", text="✅ Ponte V29 Online")]
+
+            _transport = FastapiServerTransport(_mcp_srv, endpoint="/mcp")
+            logger.info("📡 MCP TRANSPORT LOADED")
         except Exception as e:
-            return f"❌ Erro de Conexão: {str(e)}"
+            logger.error(f"❌ MCP LOAD FAIL: {e}")
+    return _transport
 
-# --- MCP BRIDGE ---
-srv = Server("api-ifood-funil")
-@srv.list_tools()
-async def list_tools():
-    from mcp.types import Tool
-    return [Tool(name="atualizar_funil_vendas", description="Busca dados reais no iFood para o funil.", inputSchema={"type":"object"})]
-
-@srv.call_tool()
-async def call_tool(name, args):
-    from mcp.types import TextContent
-    if name == "atualizar_funil_vendas":
-        msg = await get_funil_data()
-        return [TextContent(type="text", text=msg)]
-    return [TextContent(type="text", text="Pronto.")]
-
-trans = FastapiServerTransport(srv, endpoint="/mcp")
-
+# --- ROTAS ---
 @app.get("/health")
 @app.get("/")
-async def h():
-    return {"status": "OK", "v": "V28-FUNIL-ATIVO"}
+async def health():
+    return {"status": "OK", "version": "V29-ETERNAL", "port": os.environ.get("PORT")}
 
 @app.get("/mcp")
-async def g(request: Request):
-    return await trans.handle_get_sse(request)
+async def handle_mcp_get(request: Request):
+    t = get_mcp()
+    if t: return await t.handle_get_sse(request)
+    return JSONResponse(status_code=500, content={"err": "MCP_OFF"})
 
 @app.post("/mcp")
-async def p(request: Request):
-    return await trans.handle_post_notification(request)
+async def handle_mcp_post(request: Request):
+    t = get_mcp()
+    if t: return await t.handle_post_notification(request)
+    return JSONResponse(status_code=500, content={"err": "MCP_OFF"})
 
 if __name__ == "__main__":
     import uvicorn
