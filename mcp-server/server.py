@@ -1,4 +1,4 @@
-# API_IFOOD MCP Server - DEFINITIVE STABLE VERSION
+# API_IFOOD MCP Server - Final Production Fix (CORS & SSE)
 import os
 import asyncio
 import logging
@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from mcp.server import Server
 from mcp.server.fastapi import FastapiServerTransport
 from mcp.types import Tool, TextContent
@@ -21,14 +22,14 @@ logger = logging.getLogger("mcp-server")
 load_dotenv()
 
 # --- Security ---
-# USAR ESTA CHAVE NO LOVABLE: ifood2026
+# CHAVE: ifood2026
 MCP_API_KEY = "ifood2026"
 
 # --- Config ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "").strip("'").strip('"')
 
-# Global Supabase client (Lazy Initialized)
+# Global Supabase client
 _supabase = None
 
 def get_supabase():
@@ -42,79 +43,84 @@ def get_supabase():
             logger.error(f"❌ Supabase error: {e}")
     return _supabase
 
-# --- MCP Tools ---
-mcp_app = Server("api-ifood-integrator")
+# --- MCP Server Setup ---
+mcp_server = Server("api-ifood-integrator")
 
-@mcp_app.list_tools()
+@mcp_server.list_tools()
 async def list_tools() -> List[Tool]:
     return [
         Tool(
             name="get_delivery_kpis",
-            description="Busca KPIs de vendas e conversão do dia atual",
+            description="Returns daily iFood metrics from the database",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
-            name="check_system",
-            description="Verifica se o servidor está conseguindo falar com o banco de dados",
+            name="system_check",
+            description="Checks internal connectivity",
             inputSchema={"type": "object", "properties": {}}
         )
     ]
 
-@mcp_app.call_tool()
-async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
-    if name == "check_system":
-        sb = get_supabase()
-        return [TextContent(type="text", text=f"Sistema Online. Banco de Dados: {'Conectado' if sb else 'Desconectado'}")]
-    
+@mcp_server.call_tool()
+async def handle_tool_call(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+    sb = get_supabase()
+    if name == "system_check":
+        return [TextContent(type="text", text=f"Online. Database: {'OK' if sb else 'Disconnected'}")]
     if name == "get_delivery_kpis":
-        sb = get_supabase()
-        if not sb: return [TextContent(type="text", text="Erro: Banco de dados não configurado.")]
+        if not sb: return [TextContent(type="text", text="Error: DB not connected")]
         try:
             hoje = datetime.utcnow().date().isoformat()
-            res = sb.table("pedidos").select("status").gte("created_at", f"{hoje}T00:00:00").execute()
-            count = len(res.data or [])
-            return [TextContent(type="text", text=f"📊 Status em {hoje}: {count} pedidos registrados.")]
+            res = sb.table("pedidos").select("id").gte("created_at", f"{hoje}T00:00:00").execute()
+            return [TextContent(type="text", text=f"Found {len(res.data or [])} orders for {hoje}")]
         except Exception as e:
-            return [TextContent(type="text", text=f"Erro ao buscar dados: {str(e)}")]
-            
-    return [TextContent(type="text", text="Ferramenta não encontrada.")]
+            return [TextContent(type="text", text=f"Error: {str(e)}")]
+    return [TextContent(type="text", text="Tool not found")]
 
-# --- FastAPI ---
-app = FastAPI(title="API_IFOOD MCP Final")
+# --- FastAPI Setup ---
+app = FastAPI()
+
+# VERY IMPORTANT: CORS for Lovable
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 async def health():
-    return {"status": "OK", "version": "3.0.0"}
+    return {"status": "OK", "version": "3.1.0"}
 
 @app.get("/")
 async def root():
-    return {"message": "Server is ONLINE. Use /mcp with Bearer Token 'ifood2026'"}
+    return {"message": "MCP Server Active"}
 
 @app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    if request.url.path in ["/health", "/", "/favicon.ico"] or request.method == "OPTIONS":
+async def auth_check(request: Request, call_next):
+    if request.url.path in ["/health", "/", "/mcp"] and request.method == "GET":
+        return await call_next(request)
+    if request.method == "OPTIONS":
         return await call_next(request)
     
     auth = request.headers.get("Authorization")
     if not auth or auth != f"Bearer {MCP_API_KEY}":
-        logger.warning("Acesso negado: Token incorreto")
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized - Use token 'ifood2026'"})
-    
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return await call_next(request)
 
-# MCP Transport
-transport = FastapiServerTransport(mcp_app, endpoint="/mcp")
+# Correct MCP Transport Implementation
+transport = FastapiServerTransport(mcp_server, endpoint="/mcp")
 
 @app.post("/mcp")
 async def handle_mcp_post(request: Request):
-    return await transport.handle_post_notification(request)
+    await transport.handle_post_notification(request)
 
 @app.get("/mcp")
 async def handle_mcp_sse(request: Request):
-    return await transport.handle_get_sse(request)
+    async with transport.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+        await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8080))
-    logger.info(f"📡 SERVIDOR INICIADO NA PORTA {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
