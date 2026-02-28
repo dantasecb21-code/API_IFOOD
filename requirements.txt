@@ -1,7 +1,7 @@
 fastapi>=0.109.0
 uvicorn>=0.27.0
-mcp[fastapi]>=1.2.1
+mcp>=1.2.1
 python-dotenv>=1.0.1
 supabase>=2.3.0
 httpx>=0.26.0
-sse-starlette>=2.0.0
+sse-starlette>=2.1.0

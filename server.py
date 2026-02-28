@@ -1,21 +1,22 @@
+# API_IFOOD MCP Server - V21 UNSTOPPABLE
 import os
 import logging
 import sys
 import asyncio
+import json
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server import Server
 from mcp.server.fastapi import FastapiServerTransport
 
-# 1. Configurar Logging Imediato
+# Setup Logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger("mcp-v20")
-logger.info("🚩 V20: PROTOCOLO OFICIAL SENDO INICIADO...")
+logger = logging.getLogger("mcp-v21")
+logger.info("🚩 [V21] INICIALIZANDO SERVIDOR RESILIENTE...")
 
 app = FastAPI()
 
-# 2. CORS Total (Inquebrável para o Lovable)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,47 +24,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. Inicializar o Servidor MCP (Top Level para ser Rápido)
-mcp_server = Server("api-ifood-bridge")
+# --- MCP LOGIC ---
+mcp_server = Server("api-ifood-eternal")
 
 @mcp_server.list_tools()
 async def list_tools():
     from mcp.types import Tool
     return [
         Tool(
-            name="verificar_ponte",
-            description="Verifica se o servidor iFood no Railway está respondendo.",
-            inputSchema={"type": "object", "properties": {}}
+            name="check_health",
+            description="Verifica se o servidor iFood está respondendo.",
+            inputSchema={"type": "object"}
         )
     ]
 
 @mcp_server.call_tool()
 async def call_tool(name, args):
     from mcp.types import TextContent
-    return [TextContent(type="text", text="✅ Sucesso! O Lovable está oficialmente conectado ao seu motor iFood V20.")]
+    return [TextContent(type="text", text="✅ Servidor V21 Conectado e Estável!")]
 
-# 4. Transporte SSE Oficial
-# O segredo é que o 'mcp' cuida do roteamento SSE automaticamente aqui
-transport = FastapiServerTransport(mcp_server, endpoint="/mcp")
+# Global transport to be initialized safely
+_transport = None
+
+def get_transport():
+    global _transport
+    if _transport is None:
+        # Inicializa o transporte apenas quando necessário
+        _transport = FastapiServerTransport(mcp_server, endpoint="/mcp")
+    return _transport
 
 @app.get("/health")
 @app.get("/")
 async def health():
-    return {"status": "OK", "info": "V20 - PROTOCOLO CORRIGIDO"}
+    return {"status": "OK", "version": "V21-ETERNAL", "info": "Servidor Ativo"}
 
 @app.get("/mcp")
-async def handle_get(request: Request):
-    """Esta rota abre o túnel de comunicação que o Lovable precisa"""
-    return await transport.handle_get_sse(request)
+async def mcp_sse(request: Request):
+    """Canal SSE para manter a conexão eterna"""
+    t = get_transport()
+    # O FastapiServerTransport do MCP lida com o keep-alive internamente,
+    # mas vamos garantir a resposta imediata para o Railway e Lovable.
+    return await t.handle_get_sse(request)
 
 @app.post("/mcp")
-async def handle_post(request: Request):
-    """Esta rota recebe os comandos e os envia pelo túnel"""
-    return await transport.handle_post_notification(request)
+async def mcp_post(request: Request):
+    """Recebe comandos do Lovable"""
+    t = get_transport()
+    return await t.handle_post_notification(request)
 
 if __name__ == "__main__":
     import uvicorn
-    # Railway PORT dinâmica
     port = int(os.environ.get("PORT", 8080))
-    logger.info(f"🚀 Motores ligados na porta {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logger.info(f"🚀 Servidor V21 pronto na porta {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
