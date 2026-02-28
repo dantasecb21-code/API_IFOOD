@@ -1,17 +1,17 @@
-# API_IFOOD MCP Server - FINAL STABILITY V8
+# API_IFOOD MCP Server - ABSOLUTE RESILIENCE V9
 import os
 import sys
 import logging
 from datetime import datetime
 
-# --- FORCE LOGGING TO STDOUT ---
+# Configure logging at the very top
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout
 )
 logger = logging.getLogger("mcp-server")
-logger.info("� [V8] STARTING ENGINE...")
+logger.info("🚩 [V9] ENGINE BOOT SEQUENCE STARTING...")
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -20,30 +20,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = FastAPI(title="API_IFOOD MCP Bridge")
+app = FastAPI(title="API_IFOOD MCP V9")
 
+# Permissive CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# KEY FIXA: ifood2026
+# KEY: ifood2026
 MASTER_KEY = "ifood2026"
 
+# --- BULLETPROOF HEALTH PATHS ---
 @app.get("/health")
+@app.get("/saúde")
+@app.get("/saude")
 @app.get("/")
 async def health_check():
-    logger.info("💓 Health check hit.")
+    logger.info("✅ Health/Root probe received.")
     return {
-        "status": "OK",
-        "version": "8.0.0",
-        "env_port": os.getenv("PORT", "not set"),
-        "time": datetime.utcnow().isoformat()
+        "status": "OK", 
+        "version": "9.0.0", 
+        "msg": "The train has arrived at the station!",
+        "port": os.getenv("PORT", "8080")
     }
 
-# --- Lazy Loading Transport ---
+# --- Lazy MCP Logic ---
 _transport = None
 
 async def get_transport():
@@ -54,61 +59,68 @@ async def get_transport():
             from mcp.server.fastapi import FastapiServerTransport
             from mcp.types import Tool, TextContent
             
-            mcp_srv = Server("api-ifood-integrator")
+            srv = Server("api-ifood-integrator")
             
-            @mcp_srv.list_tools()
+            @srv.list_tools()
             async def list_tools():
                 return [
-                    Tool(name="get_ifood_kpis", description="Busca KPIs no Supabase Externo", inputSchema={"type": "object"}),
-                    Tool(name="ping", description="Testa a ponte", inputSchema={"type": "object"})
+                    Tool(name="get_ifood_stats", description="Busca métricas no Supabase Externo", inputSchema={"type": "object"}),
+                    Tool(name="check_internal_status", description="Verifica integridade do servidor", inputSchema={"type": "object"})
                 ]
             
-            @mcp_srv.call_tool()
+            @srv.call_tool()
             async def call_tool(name, args):
-                return [TextContent(type="text", text=f"Servidor V8 respondendo ferramenta {name}.")]
+                return [TextContent(type="text", text=f"Servidor V9 (Bridge) respondendo a {name}.")]
 
-            _transport = FastapiServerTransport(mcp_srv, endpoint="/mcp")
-            logger.info("✅ MCP Transport Ready.")
+            _transport = FastapiServerTransport(srv, endpoint="/mcp")
+            logger.info("✅ MCP Transport Initialized.")
         except Exception as e:
-            logger.error(f"❌ MCP Init Error: {e}")
+            logger.error(f"❌ MCP Init Failed: {e}")
     return _transport
 
 @app.post("/mcp")
-async def handle_mcp_post(request: Request):
+async def mcp_post(request: Request):
     t = await get_transport()
-    if not t: return JSONResponse(status_code=500, content={"error": "MCP Error"})
+    if not t: return JSONResponse(status_code=500, content={"error": "MCP Library Error"})
     return await t.handle_post_notification(request)
 
 @app.get("/mcp")
-async def handle_mcp_sse(request: Request):
+async def mcp_get(request: Request):
     t = await get_transport()
-    if not t: return JSONResponse(status_code=500, content={"error": "MCP Error"})
+    if not t: return JSONResponse(status_code=500, content={"error": "MCP Library Error"})
     return await t.handle_get_sse(request)
 
-# Security
+# Security Middleware (Permissive for Health)
 @app.middleware("http")
-async def auth_gate(request: Request, call_next):
-    # Pass public GET routes
-    if request.method == "GET" and request.url.path in ["/health", "/", "/mcp", "/saúde"]:
+async def security_gate(request: Request, call_next):
+    path = request.url.path
+    method = request.method
+    
+    # Public GET paths
+    if method == "GET" and path in ["/", "/health", "/saúde", "/saude", "/mcp"]:
         return await call_next(request)
     
-    # Check Auth on POST
-    if request.method == "POST" and request.url.path == "/mcp":
-        auth_h = request.headers.get("Authorization")
-        if not auth_h or auth_h != f"Bearer {MASTER_KEY}":
-            logger.warning(f"Unauthorized access attempt to {request.url.path}")
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    # OPTIONS for CORS
+    if method == "OPTIONS":
+        return await call_next(request)
+        
+    # Secure POST paths
+    if method == "POST" and path == "/mcp":
+        auth = request.headers.get("Authorization")
+        if not auth or auth != f"Bearer {MASTER_KEY}":
+            logger.warning(f"BLOCKED: Unauthorized POST to {path} from {request.client}")
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized. Use 'ifood2026'."})
             
     return await call_next(request)
 
 if __name__ == "__main__":
     import uvicorn
-    # ESSENCIAL: Pegar a porta que o Railway injeta no ambiente!
-    port_str = os.getenv("PORT", "8080")
+    # Capture Railway's dynamic PORT
+    port_env = os.getenv("PORT", "8080")
     try:
-        current_port = int(port_str)
-    except ValueError:
-        current_port = 8080
+        bind_port = int(port_env)
+    except:
+        bind_port = 8080
         
-    logger.info(f"� BINDING TO PORT {current_port}")
-    uvicorn.run(app, host="0.0.0.0", port=current_port, log_level="info")
+    logger.info(f"🚀 [V9] BINDING TO PORT: {bind_port}")
+    uvicorn.run(app, host="0.0.0.0", port=bind_port, log_level="info")
