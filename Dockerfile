@@ -9,6 +9,8 @@ COPY server.py .
 
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
+
 EXPOSE 8080
 
-CMD ["python", "server.py"]
+# Comando profissional do Uvicorn para Railway
+CMD uvicorn server:app --host 0.0.0.0 --port $PORT --log-level info
