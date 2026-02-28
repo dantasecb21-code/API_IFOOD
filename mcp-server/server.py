@@ -1,54 +1,27 @@
-# API_IFOOD MCP Server - Last Deployment Update: 2026-02-27
+# API_IFOOD MCP Server - Robust Version
 import os
 import asyncio
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, Request
+
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from mcp.server.fastapi import create_server
+from mcp.server import Server
+from mcp.server.fastapi import FastapiServerTransport
 from mcp.types import Tool, TextContent
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import httpx
 from github import Github
 from supabase import create_client, Client
 
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("mcp-server")
+logger.info("Initializing API_IFOOD MCP Server...")
 
 # Load environment variables
 load_dotenv()
-
-# --- Logging ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("mcp-server")
-
-app = FastAPI(title="API_IFOOD MCP Server")
-
-# --- Security Middleware ---
-MCP_API_KEY = os.getenv("MCP_API_KEY")
-
-@app.middleware("http")
-async def verify_auth(request: Request, call_next):
-    # Skip auth for health check and options
-    if request.url.path == "/health" or request.method == "OPTIONS":
-        return await call_next(request)
-    
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return JSONResponse(
-            status_code=401,
-            content={"detail": "Missing or invalid Bearer token"}
-        )
-    
-    token = auth_header.split(" ")[1]
-    if token != MCP_API_KEY:
-        return JSONResponse(
-            status_code=403,
-            content={"detail": "Unauthorized"}
-        )
-    
-    return await call_next(request)
-
 
 # --- Configuration ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -56,19 +29,20 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 IFOOD_CLIENT_ID = os.getenv("IFOOD_CLIENT_ID")
 IFOOD_CLIENT_SECRET = os.getenv("IFOOD_CLIENT_SECRET")
 IFOOD_BASE_URL = os.getenv("IFOOD_API_BASE_URL", "https://merchant-api.ifood.com.br")
+MCP_API_KEY = os.getenv("MCP_API_KEY", "api_ifood_secret_token_123")
 
-# GitHub Configuration for multiple repos
+# Initialize GitHub Clients safely
 GITHUB_TOKENS = os.getenv("GITHUB_TOKENS", "").split(",")
 GITHUB_CLIENTS = []
 for token in GITHUB_TOKENS:
     t = token.strip()
-    if t and t != "your_token_1" and t != "your_token_2":
+    if t and t not in ["your_token_1", "your_token_2", "your_github_token_1"]:
         try:
             GITHUB_CLIENTS.append(Github(t))
         except Exception as e:
             logger.error(f"Error initializing GitHub client: {e}")
 
-# Initialize Clients with safety checks
+# Initialize Supabase safely
 supabase: Optional[Client] = None
 if SUPABASE_URL and SUPABASE_KEY and "your_supabase" not in SUPABASE_KEY:
     try:
@@ -76,147 +50,99 @@ if SUPABASE_URL and SUPABASE_KEY and "your_supabase" not in SUPABASE_KEY:
         logger.info("✅ Supabase client initialized.")
     except Exception as e:
         logger.error(f"❌ Error initializing Supabase: {e}")
-else:
-    logger.warning("⚠️ Supabase credentials missing or invalid.")
 
+# --- MCP Logic ---
+mcp_app = Server("api-ifood-integrator")
 
-class IFoodClient:
-    def __init__(self, client_id, client_secret):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.access_token = None
+@mcp_app.list_tools()
+async def handle_list_tools() -> List[Tool]:
+    return [
+        Tool(
+            name="get_daily_kpis",
+            description="Calcula e retorna os KPIs de delivery do dia atual",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="github_global_search",
+            description="Pesquisa issues em todos os repositórios GitHub vinculados",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Termo de pesquisa"}
+                },
+                "required": ["query"]
+            }
+        )
+    ]
 
-    async def _authenticate(self):
-        url = f"{IFOOD_BASE_URL}/authentication/v1.0/oauth/token"
-        data = {"grantType": "client_credentials", "clientId": self.client_id, "clientSecret": self.client_secret}
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, data=data)
-            if resp.status_code == 200:
-                self.access_token = resp.json()["accessToken"]
-            else:
-                logger.error(f"iFood Auth Error: {resp.text}")
-
-    async def get_metrics(self, merchant_id: str):
-        # Simulação de chamada real por enquanto, mas com estrutura para expansão
-        return {
-            "vendas_total": 150,
-            "faturamento_total": 4500.50,
-            "tempo_aberto_pct": 98.5,
-            "nota_loja": 4.8
-        }
-
-ifood_client = IFoodClient(IFOOD_CLIENT_ID, IFOOD_CLIENT_SECRET)
-
-# --- MCP Tool Implementation Logic ---
-
-async def calcular_kpis():
-    hoje = datetime.utcnow().date()
-    inicio = f"{hoje}T00:00:00"
-    fim = f"{hoje}T23:59:59"
-    
-    if not supabase:
-        return {"error": "Supabase connection not initialized"}
-    
-    # Exemplo de lógica portada do analytics.py
-    res = supabase.table("pedidos").select("status").gte("created_at", inicio).execute()
-
-    pedidos = res.data or []
-    total = len(pedidos)
-    aprovados = sum(1 for p in pedidos if p.get("status") in ["entregue", "concluido"])
-    taxa = round((aprovados / total * 100), 2) if total > 0 else 0
-    
-    return {
-        "data": str(hoje),
-        "total_pedidos": total,
-        "taxa_conversao": f"{taxa}%"
-    }
-
-async def search_github_across_accounts(query: str):
-    results = []
-    for client in GITHUB_CLIENTS:
+@mcp_app.call_tool()
+async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+    if name == "get_daily_kpis":
+        if not supabase:
+            return [TextContent(type="text", text="Erro: Supabase não conectado.")]
+        
+        hoje = datetime.utcnow().date()
+        inicio = f"{hoje}T00:00:00"
         try:
-            user = client.get_user()
-            issues = client.search_issues(query)
-            for issue in issues[:5]:
-                results.append({"repo": issue.repository.full_name, "title": issue.title, "url": issue.html_url})
+            res = supabase.table("pedidos").select("status").gte("created_at", inicio).execute()
+            total = len(res.data or [])
+            return [TextContent(type="text", text=f"Total de pedidos hoje: {total}")]
         except Exception as e:
-            logger.warning(f"Error searching GitHub account: {e}")
-    return results
+            return [TextContent(type="text", text=f"Erro ao buscar KPIs: {e}")]
 
-# --- MCP Server Setup ---
+    elif name == "github_global_search":
+        query = arguments.get("query", "")
+        results = []
+        for client in GITHUB_CLIENTS:
+            try:
+                issues = client.search_issues(query)
+                for issue in issues[:3]:
+                    results.append(f"- {issue.repository.full_name}: {issue.title}")
+            except: continue
+        return [TextContent(type="text", text="\n".join(results) or "Nenhum resultado.")]
+    
+    raise ValueError(f"Ferramenta desconhecida: {name}")
 
-tools = [
-    Tool(
-        name="get_daily_kpis",
-        description="Calcula e retorna os KPIs de delivery (vendas, conversão) do dia atual",
-        inputSchema={"type": "object", "properties": {}}
-    ),
-    Tool(
-        name="github_global_search",
-        description="Pesquisa issues em todos os repositórios GitHub vinculados (multi-conta)",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Termo de pesquisa"}
-            },
-            "required": ["query"]
-        }
-    ),
-    Tool(
-        name="sync_ifood_data",
-        description="Sincroniza dados da iFood API para o banco de dados Supabase",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "merchant_id": {"type": "string"}
-            },
-            "required": ["merchant_id"]
-        }
-    )
-]
+# --- FastAPI Setup ---
+app = FastAPI(title="API_IFOOD MCP Server")
 
-mcp_server = create_server(
-    name="api-ifood-integrator",
-    version="1.1.0",
-    tools=tools
-)
-
-# Tool handlers
-@mcp_server.call_tool("get_daily_kpis")
-async def handle_get_kpis(arguments: Optional[Dict[str, Any]] = None):
-    data = await calcular_kpis()
-    return [TextContent(type="text", text=str(data))]
-
-@mcp_server.call_tool("github_global_search")
-async def handle_github_search(arguments: Dict[str, Any]):
-    data = await search_github_across_accounts(arguments["query"])
-    return [TextContent(type="text", text=str(data))]
-
-@mcp_server.call_tool("sync_ifood_data")
-async def handle_ifood_sync(arguments: Dict[str, Any]):
-    merchant_id = arguments["merchant_id"]
-    metrics = await ifood_client.get_metrics(merchant_id)
-    # Lógica de salvamento no Supabase omitida para brevidade, mas integrada
-    return [TextContent(type="text", text=f"Sincronização concluída para {merchant_id}")]
-
-app.mount("/mcp", mcp_server)
-
-# --- Standard API for Lovable ---
-
+# Healthcheck endpoint - NO AUTH
 @app.get("/health")
 async def health():
     return {
         "status": "OK",
-        "github_accounts": len(GITHUB_CLIENTS),
-        "supabase_connected": supabase is not None,
-        "mcp_key_set": MCP_API_KEY is not None
+        "up": True,
+        "supabase": supabase is not None,
+        "github_accounts": len(GITHUB_CLIENTS)
     }
 
+# Auth Middleware
+@app.middleware("http")
+async def verify_auth(request: Request, call_next):
+    # Permite healthcheck e OPTIONS sem token
+    if request.url.path in ["/health", "/"] or request.method == "OPTIONS":
+        return await call_next(request)
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer ") or auth_header.split(" ")[1] != MCP_API_KEY:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    
+    return await call_next(request)
 
+# Mount MCP on /mcp
+transport = FastapiServerTransport(mcp_app, endpoint="/mcp")
+
+@app.post("/mcp")
+async def handle_mcp(request: Request):
+    return await transport.handle_post_notification(request) if request.method == "POST" else None
+
+# Para o Railway/FastAPI mount tradicional
+@app.get("/mcp")
+async def handle_mcp_get(request: Request):
+    return await transport.handle_get_sse(request)
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     logger.info(f"🚀 Iniciando servidor MCP na porta {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
-
