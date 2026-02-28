@@ -3,16 +3,19 @@ import logging
 import sys
 import asyncio
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from mcp.server import Server
+from mcp.server.fastapi import FastapiServerTransport
 
-# Configuração de Logs direta
+# 1. Configurar Logging Imediato
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger("mcp")
+logger = logging.getLogger("mcp-v20")
+logger.info("🚩 V20: PROTOCOLO OFICIAL SENDO INICIADO...")
 
 app = FastAPI()
 
-# LIBERA TOTAL PARA O LOVABLE
+# 2. CORS Total (Inquebrável para o Lovable)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,62 +23,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 3. Inicializar o Servidor MCP (Top Level para ser Rápido)
+mcp_server = Server("api-ifood-bridge")
+
+@mcp_server.list_tools()
+async def list_tools():
+    from mcp.types import Tool
+    return [
+        Tool(
+            name="verificar_ponte",
+            description="Verifica se o servidor iFood no Railway está respondendo.",
+            inputSchema={"type": "object", "properties": {}}
+        )
+    ]
+
+@mcp_server.call_tool()
+async def call_tool(name, args):
+    from mcp.types import TextContent
+    return [TextContent(type="text", text="✅ Sucesso! O Lovable está oficialmente conectado ao seu motor iFood V20.")]
+
+# 4. Transporte SSE Oficial
+# O segredo é que o 'mcp' cuida do roteamento SSE automaticamente aqui
+transport = FastapiServerTransport(mcp_server, endpoint="/mcp")
+
 @app.get("/health")
 @app.get("/")
 async def health():
-    return {"status": "OK", "msg": "V19 - PRONTO PARA CONECTAR"}
+    return {"status": "OK", "info": "V20 - PROTOCOLO CORRIGIDO"}
 
 @app.get("/mcp")
-async def sse_get(request: Request):
-    """O Lovable abre essa porta e espera o sinal de OK"""
-    async def event_generator():
-        # SINAL ESSENCIAL: Diz ao Lovable onde enviar comandos
-        yield f"event: endpoint\ndata: /mcp\n\n"
-        while True:
-            await asyncio.sleep(20)
-            yield ": keep-alive\n\n"
-            
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+async def handle_get(request: Request):
+    """Esta rota abre o túnel de comunicação que o Lovable precisa"""
+    return await transport.handle_get_sse(request)
 
 @app.post("/mcp")
-async def sse_post(request: Request):
-    """O Lovable envia os comandos aqui"""
-    body = await request.json()
-    msg_id = body.get("id")
-    method = body.get("method")
-    
-    # Resposta de inicialização que o Lovable exige
-    if method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "ifood-bridge", "version": "1.0.0"}
-            }
-        }
-    
-    # Lista a ferramenta de teste
-    if method == "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {
-                "tools": [
-                    {
-                        "name": "verificar_ponte",
-                        "description": "Verifica se o servidor iFood está respondendo.",
-                        "inputSchema": {"type": "object"}
-                    }
-                ]
-            }
-        }
-    
-    return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+async def handle_post(request: Request):
+    """Esta rota recebe os comandos e os envia pelo túnel"""
+    return await transport.handle_post_notification(request)
 
 if __name__ == "__main__":
     import uvicorn
-    # Railway exige porta dinâmica
+    # Railway PORT dinâmica
     port = int(os.environ.get("PORT", 8080))
+    logger.info(f"🚀 Motores ligados na porta {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
